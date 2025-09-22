@@ -1,0 +1,49 @@
+ib_connections:
+  - name: "IB-local"
+    address: "127.0.0.1:4040"
+    client_id: 1
+  - name: "IB-local-2"
+    address: "127.0.0.1:4050"
+    client_id: 2
+
+brokers:
+  - name: "IB broker"
+    type: "IbBroker"
+    params:
+      connection: "IB-local"
+  - name: "Dummy broker"
+    type: "DummyBroker"
+
+data_feeds:
+  - name: "Backtest data feed"
+    type: "CsvDataFeed"
+    params:
+      path: "test/csv_data_1.csv"
+  - name: "IB Market data feed"
+    type: "IbMarketDataFeed"
+    params:
+      connection: "IB-local"
+  - name: "IB Historical data feed"
+    type: "IbHistoricalDataFeed"
+    params:
+      connection: "IB-local-2"
+
+strategies:
+  - name: "print-a"
+    type: "PrintStrategy"
+    broker: "Dummy broker"
+    data_feed: "Backtest data feed"
+  - name: "SMA cross with historical data"
+    type: "SmaCrossStrategy"
+    broker: "Dummy broker"
+    data_feed: "IB Historical data feed"
+    params:
+      slow_window: 200
+      fast_window: 50
+  - name: "SMA cross with market data"
+    type: "SmaCrossStrategy"
+    broker: "Dummy broker"
+    data_feed: "IB Market data feed"
+    params:
+      slow_window: 200
+      fast_window: 50

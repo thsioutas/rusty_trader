@@ -1,0 +1,18 @@
+brokers:
+  - name: "Dummy broker"
+    type: "DummyBroker"
+
+data_feeds:
+  - name: "Backtest data feed"
+    type: "CsvDataFeed"
+    params:
+      path: "test/csv_data_1.csv"
+
+strategies:
+  - name: "SMA cross backtesting"
+    type: "SmaCrossStrategy"
+    broker: "Dummy broker"
+    data_feed: "Backtest data feed"
+    params:
+      slow_window: 200
+      fast_window: 50
