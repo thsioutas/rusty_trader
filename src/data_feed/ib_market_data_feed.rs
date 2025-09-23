@@ -14,7 +14,7 @@ pub struct IbMarketDataFeed {
 }
 
 impl IbMarketDataFeed {
-    pub fn new(name: String, client: Arc<Client>) -> anyhow::Result<Self> {
+    pub fn new(name: String, client: Arc<Client>) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         // TODO: The contract should be configurable
         let contract = Contract::stock("AAPL");
@@ -22,7 +22,6 @@ impl IbMarketDataFeed {
         let generic_ticks = &["233", "293"];
         let snapshot = false;
         let regulatory_snapshot = false;
-
         tokio::spawn(async move {
             // TODO: Handle error by passing it to tx
             let subscription = client
@@ -45,7 +44,7 @@ impl IbMarketDataFeed {
                 }
             }
         });
-        Ok(Self { name, rx })
+        Self { name, rx }
     }
 }
 

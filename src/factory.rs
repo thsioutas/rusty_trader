@@ -5,8 +5,7 @@ use crate::{
         StrategyType,
     },
     data_feed::{
-        DataFeed,
-        csv_data_feed::CsvDataFeed,
+        DataFeed, csv_data_feed::CsvDataFeed, ib_historical_data_feed::IbHistoricalDataFeed,
         ib_market_data_feed::IbMarketDataFeed,
     },
     strategy::{
@@ -18,9 +17,14 @@ use crate::{
     },
 };
 use config::Value;
-use ibapi::Client;
+use ibapi::{
+    Client,
+    market_data::historical::{BarSize, Duration, ToDuration},
+};
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
+use time::{OffsetDateTime, PrimitiveDateTime, macros::format_description};
+use tracing::{debug, error, warn};
 
 pub async fn build_strategies(
     bot_config: BotConfig,
@@ -72,9 +76,17 @@ fn build_connections(
 ) -> Result<HashMap<String, Arc<Client>>, FactoryError> {
     let mut ib_connections = HashMap::new();
     for config in configs {
+        debug!(
+            "Attempting IB connection '{}' at {} (client_id={})",
+            config.name, config.address, config.client_id
+        );
         let client = Client::connect(&config.address, config.client_id).map_err(|err| {
             FactoryError::IbConnectionFailure(config.name.clone(), err.to_string())
         })?;
+        debug!(
+            "Established IB connection '{}' at {} (client_id={})",
+            config.name, config.address, config.client_id
+        );
         ib_connections.insert(config.name, Arc::new(client));
     }
     Ok(ib_connections)
@@ -89,7 +101,7 @@ fn build_brokers(
         let broker: Arc<dyn Broker> = match config.r#type {
             BrokerType::DummyBroker => Arc::new(DummyBroker::new(config.name.clone())),
             BrokerType::IbBroker => {
-                let ib_connection = get_ib_connection(config.params, ib_connections)?;
+                let ib_connection = get_ib_connection(config.params.as_ref(), ib_connections)?;
                 Arc::new(Ib::new(config.name.clone(), ib_connection.clone()))
             }
         };
@@ -120,14 +132,45 @@ fn build_data_feeds(
                 )
             }
             DataFeedType::IbMarketDataFeed => {
-                let ib_connection = get_ib_connection(Some(config.params), ib_connections)?;
-                // TODO: Hanlde error
-                Box::new(IbMarketDataFeed::new(config.name.clone(), ib_connection.clone()).unwrap())
+                let ib_connection = get_ib_connection(Some(&config.params), ib_connections)?;
+                Box::new(IbMarketDataFeed::new(config.name.clone(), ib_connection))
             }
             DataFeedType::IbHistoricalDataFeed => {
-                // TODO: Use historical data feed when ready
-                let ib_connection = get_ib_connection(Some(config.params), ib_connections)?;
-                Box::new(IbMarketDataFeed::new(config.name.clone(), ib_connection).unwrap())
+                let ib_connection: Arc<Client> =
+                    get_ib_connection(Some(&config.params), ib_connections)?;
+
+                let default_end_datetime = OffsetDateTime::now_utc();
+                let end_datetime = get_ib_historical_data_feed_param_or_default(
+                    &config.params,
+                    "end_datetime",
+                    default_end_datetime,
+                    |s| parse_end_datetime(s).map_err(|e| e.to_string()),
+                );
+
+                let default_duration = 7.days();
+                let duration = get_ib_historical_data_feed_param_or_default(
+                    &config.params,
+                    "duration",
+                    default_duration,
+                    |s| Duration::try_from(s).map_err(|e| e.to_string()),
+                );
+
+                let default_bar_size = BarSize::Day;
+                let bar_size = get_ib_historical_data_feed_param_or_default(
+                    &config.params,
+                    "bar_size",
+                    default_bar_size,
+                    |s| Ok(BarSize::from(s)), // TODO: This panics. Consider solving on repo or wrap in Result
+                );
+
+                Box::new(IbHistoricalDataFeed::new(
+                    config.name.clone(),
+                    ib_connection,
+                    config.symbol,
+                    end_datetime,
+                    duration,
+                    bar_size,
+                ))
             }
         };
         data_feeds.insert(config.name, data_feed);
@@ -145,7 +188,7 @@ fn get_usize_param(params: &Option<HashMap<String, Value>>, key: &str, default: 
 }
 
 fn get_ib_connection(
-    params: Option<HashMap<String, Value>>,
+    params: Option<&HashMap<String, Value>>,
     ib_connections: &HashMap<String, Arc<Client>>,
 ) -> Result<Arc<Client>, FactoryError> {
     let ib_connection_value = params
@@ -160,6 +203,66 @@ fn get_ib_connection(
         .get(&ib_connection_name)
         .ok_or(FactoryError::IbConnectionConfigNotFound(ib_connection_name))?;
     Ok(ib_connection.clone())
+}
+
+fn get_ib_historical_data_feed_param_or_default<T, F>(
+    params: &HashMap<String, Value>,
+    key: &str,
+    default: T,
+    parse: F,
+) -> T
+where
+    T: Clone + std::fmt::Debug,
+    F: FnOnce(&str) -> Result<T, String>,
+{
+    match params.get(key) {
+        None => {
+            warn!(
+                "Missing '{key}' param for IB Historical Data Feed. Using default: {:?}",
+                default
+            );
+            default
+        }
+        Some(v) => match v.clone().into_string() {
+            Ok(s) => match parse(&s) {
+                Ok(val) => val,
+                Err(err) => {
+                    error!(
+                        "Failed to parse '{key}' param ('{s}') for IB Historical Data Feed. \
+                        Using default: {:?}. Error: {err}",
+                        default
+                    );
+                    default
+                }
+            },
+            Err(_) => {
+                error!(
+                    "Wrong type for '{key}' param in IB Historical Data Feed. \
+                    Expected string, got something else. Using default: {:?}",
+                    default
+                );
+                default
+            }
+        },
+    }
+}
+
+fn parse_end_datetime(s: &str) -> Result<OffsetDateTime, String> {
+    if s.eq_ignore_ascii_case("now") {
+        return Ok(OffsetDateTime::now_utc());
+    }
+
+    // Try "YYYYMMDD HH:MM:SS"
+    let fmt_full = format_description!("[year][month][day] [hour]:[minute]:[second]");
+    if let Ok(ndt) = PrimitiveDateTime::parse(s, &fmt_full) {
+        return Ok(ndt.assume_utc());
+    }
+
+    if let Ok(ndt) = PrimitiveDateTime::parse(&(s.to_owned() + " 00:00:00"), &fmt_full) {
+        return Ok(ndt.assume_utc());
+    }
+
+    Err(format!("Invalid end_datetime format: {s}"))
 }
 
 #[derive(Debug, Error)]

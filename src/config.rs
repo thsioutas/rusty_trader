@@ -58,6 +58,7 @@ pub enum StrategyType {
 pub struct DataFeedConfig {
     pub name: String,
     pub r#type: DataFeedType,
+    pub symbol: String,
     pub params: HashMap<String, Value>,
 }
 

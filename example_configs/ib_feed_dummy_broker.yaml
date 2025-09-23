@@ -1,0 +1,29 @@
+ib_connections:
+  - name: "IB-local"
+    address: "127.0.0.1:4002"
+    client_id: 1
+
+brokers:
+  - name: "IB broker"
+    type: "IbBroker"
+    params:
+      connection: "IB-local"
+  - name: "Dummy broker"
+    type: "DummyBroker"
+
+data_feeds:
+  - name: "IB Historical data feed"
+    type: "IbHistoricalDataFeed"
+    symbol: "AAP"
+    params:
+      connection: "IB-local"
+      duration: "250 D"
+
+strategies:
+  - name: "SMA cross with historical data"
+    type: "SmaCrossStrategy"
+    broker: "Dummy broker"
+    data_feed: "IB Historical data feed"
+    params:
+      slow_window: 200
+      fast_window: 50
