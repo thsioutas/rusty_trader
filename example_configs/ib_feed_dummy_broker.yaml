@@ -19,11 +19,18 @@ data_feeds:
       connection: "IB-local"
       duration: "250 D"
 
+position_sizers:
+  - name: "fixed-100"
+    type: "FixedSizer"
+    params:
+      test: 1
+
 strategies:
   - name: "SMA cross with historical data"
     type: "SmaCrossStrategy"
     broker: "Dummy broker"
     data_feed: "IB Historical data feed"
+    position_sizer: "fixed-100"
     params:
       slow_window: 200
       fast_window: 50

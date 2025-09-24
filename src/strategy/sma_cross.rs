@@ -1,6 +1,7 @@
 use crate::{
     broker::Broker,
     data_feed::DataFeed,
+    position_sizer::PositionSizer,
     strategy::Strategy,
     types::{Order, OrderSide, OrderType},
 };
@@ -15,6 +16,7 @@ pub struct SmaCrossStrategy {
     name: String,
     data_feed: Box<dyn DataFeed>,
     broker: Arc<dyn Broker>,
+    position_sizer: Box<dyn PositionSizer>,
     slow_window: usize,
     fast_window: usize,
     prices: Vec<f64>,
@@ -26,6 +28,7 @@ impl SmaCrossStrategy {
         name: String,
         data_feed: Box<dyn DataFeed>,
         broker: Arc<dyn Broker>,
+        position_sizer: Box<dyn PositionSizer>,
         fast_window: usize,
         slow_window: usize,
     ) -> Self {
@@ -33,6 +36,7 @@ impl SmaCrossStrategy {
             name,
             data_feed,
             broker,
+            position_sizer,
             fast_window,
             slow_window,
             prices: Vec::new(),
@@ -77,11 +81,11 @@ impl Strategy for SmaCrossStrategy {
         while let Some(data) = self.data_feed.next_tick().await {
             self.prices.push(data.price);
             if let Some(signal) = self.check_signal() {
-                // TODO: Fix size of order
+                let qty = self.position_sizer.size();
                 let order = Order {
                     symbol: "AAPL".into(),
                     side: signal.into(),
-                    qty: 10,
+                    qty,
                     price: None,
                     order_type: OrderType::Market,
                 };

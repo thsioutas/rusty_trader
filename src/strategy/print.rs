@@ -1,5 +1,5 @@
 use super::Strategy;
-use crate::{broker::Broker, data_feed::DataFeed};
+use crate::{broker::Broker, data_feed::DataFeed, position_sizer::PositionSizer};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::info;
@@ -8,6 +8,7 @@ pub struct PrintStrategy {
     pub name: String,
     pub data_feed: Box<dyn DataFeed>,
     pub broker: Arc<dyn Broker>,
+    pub position_sizer: Box<dyn PositionSizer>,
 }
 
 #[async_trait]

@@ -6,8 +6,6 @@ use tokio::sync::mpsc;
 
 use crate::data_feed::{DataFeed, MarketData};
 
-// TODO: do not use anyhow but either use DataFeedError or specific errors to DataFeedError
-
 pub struct IbMarketDataFeed {
     name: String,
     rx: mpsc::UnboundedReceiver<MarketData>,

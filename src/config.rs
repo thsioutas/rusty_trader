@@ -12,6 +12,7 @@ pub struct BotConfig {
     pub brokers: Vec<BrokerConfig>,
     pub strategies: Vec<StrategyConfig>,
     pub data_feeds: Vec<DataFeedConfig>,
+    pub position_sizers: Vec<PositionSizerConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +39,8 @@ pub struct StrategyConfig {
     pub broker: String,
     /// The data feed that should be used for the specific strategy
     pub data_feed: String,
+    /// The position sizer that should be used for the specific strategy
+    pub position_sizer: String,
     /// Extra optional parameters that might be needed for the specific strategy
     pub params: Option<HashMap<String, Value>>,
 }
@@ -67,6 +70,19 @@ pub enum DataFeedType {
     CsvDataFeed,
     IbMarketDataFeed,
     IbHistoricalDataFeed,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PositionSizerConfig {
+    pub name: String,
+    pub r#type: PositionSizerType,
+    pub params: HashMap<String, Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub enum PositionSizerType {
+    FixedSizer,
+    PercentOfEquitySizer,
 }
 
 impl BotConfig {

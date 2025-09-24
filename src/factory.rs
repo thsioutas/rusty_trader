@@ -2,11 +2,14 @@ use crate::{
     broker::{Broker, dummy::DummyBroker, ib::Ib},
     config::{
         BotConfig, BrokerConfig, BrokerType, DataFeedConfig, DataFeedType, IbConnectionConfig,
-        StrategyType,
+        PositionSizerConfig, PositionSizerType, StrategyType,
     },
     data_feed::{
         DataFeed, csv_data_feed::CsvDataFeed, ib_historical_data_feed::IbHistoricalDataFeed,
         ib_market_data_feed::IbMarketDataFeed,
+    },
+    position_sizer::{
+        PositionSizer, fixed_sizer::FixedSizer, percent_of_equity_sizer::PercentOfEquitySizer,
     },
     strategy::{
         Strategy,
@@ -21,6 +24,7 @@ use ibapi::{
     Client,
     market_data::historical::{BarSize, Duration, ToDuration},
 };
+use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use time::{OffsetDateTime, PrimitiveDateTime, macros::format_description};
@@ -32,6 +36,7 @@ pub async fn build_strategies(
     let ib_connections = build_connections(bot_config.ib_connections)?;
     let brokers = build_brokers(bot_config.brokers, &ib_connections)?;
     let mut data_feeds = build_data_feeds(bot_config.data_feeds, &ib_connections)?;
+    let mut position_sizers = build_sizers(bot_config.position_sizers)?;
     let mut strategies = Vec::new();
     for config in bot_config.strategies {
         // Brokers are shared between strategies. That's why they stay in Arc
@@ -42,12 +47,17 @@ pub async fn build_strategies(
         let data_feed = data_feeds
             .remove(&config.data_feed)
             .ok_or(FactoryError::UnknownDataFeed(config.data_feed))?;
+        // Sizers stay at Box because each strategy should own its sizer instance.
+        let sizer = position_sizers
+            .remove(&config.position_sizer)
+            .ok_or(FactoryError::UnknownPositionSizer(config.position_sizer))?;
         match config.r#type {
             StrategyType::PrintStrategy => {
                 let strategy: Box<dyn Strategy> = Box::new(PrintStrategy {
                     name: config.name,
                     data_feed,
                     broker: broker.clone(),
+                    position_sizer: sizer,
                 });
                 strategies.push(strategy);
             }
@@ -61,6 +71,7 @@ pub async fn build_strategies(
                     config.name,
                     data_feed,
                     broker.clone(),
+                    sizer,
                     fast_window,
                     slow_window,
                 ));
@@ -140,27 +151,30 @@ fn build_data_feeds(
                     get_ib_connection(Some(&config.params), ib_connections)?;
 
                 let default_end_datetime = OffsetDateTime::now_utc();
-                let end_datetime = get_ib_historical_data_feed_param_or_default(
+                let end_datetime = get_param_or_default(
                     &config.params,
                     "end_datetime",
                     default_end_datetime,
-                    |s| parse_end_datetime(s).map_err(|e| e.to_string()),
+                    |s: &String| parse_end_datetime(s).map_err(|e| e.to_string()),
+                    "IB Historical Data Feed",
                 );
 
                 let default_duration = 7.days();
-                let duration = get_ib_historical_data_feed_param_or_default(
+                let duration = get_param_or_default(
                     &config.params,
                     "duration",
                     default_duration,
-                    |s| Duration::try_from(s).map_err(|e| e.to_string()),
+                    |s: &String| Duration::try_from(s.as_str()).map_err(|e| e.to_string()),
+                    "IB Historical Data Feed",
                 );
 
                 let default_bar_size = BarSize::Day;
-                let bar_size = get_ib_historical_data_feed_param_or_default(
+                let bar_size = get_param_or_default(
                     &config.params,
                     "bar_size",
                     default_bar_size,
-                    |s| Ok(BarSize::from(s)), // TODO: This panics. Consider solving on repo or wrap in Result
+                    |s: &String| Ok(BarSize::from(s.as_str())), // TODO: This panics. Consider solving on repo or wrap in Result
+                    "IB Historical Data Feed",
                 );
 
                 Box::new(IbHistoricalDataFeed::new(
@@ -176,6 +190,38 @@ fn build_data_feeds(
         data_feeds.insert(config.name, data_feed);
     }
     Ok(data_feeds)
+}
+
+fn build_sizers(
+    configs: Vec<PositionSizerConfig>,
+) -> Result<HashMap<String, Box<dyn PositionSizer>>, FactoryError> {
+    let mut sizers = HashMap::new();
+    for config in configs {
+        let broker: Box<dyn PositionSizer> = match config.r#type {
+            PositionSizerType::FixedSizer => {
+                let qty = get_param_or_default(
+                    &config.params,
+                    "qty",
+                    10,
+                    |v: &u16| Ok(v.clone() as u32),
+                    "Fixed Sizer",
+                );
+                Box::new(FixedSizer::new(config.name.clone(), qty))
+            }
+            PositionSizerType::PercentOfEquitySizer => {
+                let percent = get_param_or_default(
+                    &config.params,
+                    "percent",
+                    0.1,
+                    |v: &f64| Ok(v.clone()),
+                    "Percent of Equity Sizer",
+                );
+                Box::new(PercentOfEquitySizer::new(config.name.clone(), percent))
+            }
+        };
+        sizers.insert(config.name, broker);
+    }
+    Ok(sizers)
 }
 
 fn get_usize_param(params: &Option<HashMap<String, Value>>, key: &str, default: usize) -> usize {
@@ -205,30 +251,32 @@ fn get_ib_connection(
     Ok(ib_connection.clone())
 }
 
-fn get_ib_historical_data_feed_param_or_default<T, F>(
+fn get_param_or_default<'de, T, F, V>(
     params: &HashMap<String, Value>,
     key: &str,
     default: T,
     parse: F,
+    root_config_name: &str,
 ) -> T
 where
     T: Clone + std::fmt::Debug,
-    F: FnOnce(&str) -> Result<T, String>,
+    V: Deserialize<'de> + std::fmt::Display,
+    F: FnOnce(&V) -> Result<T, String>,
 {
     match params.get(key) {
         None => {
             warn!(
-                "Missing '{key}' param for IB Historical Data Feed. Using default: {:?}",
+                "Missing '{key}' param for {root_config_name}. Using default: {:?}",
                 default
             );
             default
         }
-        Some(v) => match v.clone().into_string() {
+        Some(v) => match v.clone().try_deserialize() {
             Ok(s) => match parse(&s) {
                 Ok(val) => val,
                 Err(err) => {
                     error!(
-                        "Failed to parse '{key}' param ('{s}') for IB Historical Data Feed. \
+                        "Failed to parse '{key}' param ('{s}') for {root_config_name}. \
                         Using default: {:?}. Error: {err}",
                         default
                     );
@@ -237,7 +285,7 @@ where
             },
             Err(_) => {
                 error!(
-                    "Wrong type for '{key}' param in IB Historical Data Feed. \
+                    "Wrong type for '{key}' param in {root_config_name}. \
                     Expected string, got something else. Using default: {:?}",
                     default
                 );
@@ -279,10 +327,121 @@ pub enum FactoryError {
     UnknownBroker(String),
     #[error("The data feed `{0}` was not found in the conifg")]
     UnknownDataFeed(String),
+    #[error("The position sizer `{0}` was not found in the conifg")]
+    UnknownPositionSizer(String),
     #[error("The CSV Data Feed config does not contain a path parameter")]
     CsvDataFeedWithoutPath,
     #[error("The path of the CSV Data Feed config is not the expected format: `{0}`")]
     WrongCsvPathFormat(String),
     #[error("CSV Data Feed initialization failed: `{0}`")]
     CsvDataFeedInitError(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use config::Value;
+    use std::collections::HashMap;
+    use time::macros::datetime;
+
+    fn make_params(map: &[(&str, Value)]) -> HashMap<String, Value> {
+        map.iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn test_get_param_or_default_returns_default_when_key_missing() {
+        let params = HashMap::new();
+        let result = get_param_or_default::<u32, _, String>(
+            &params,
+            "nonexistent",
+            42,
+            |s| s.parse::<u32>().map_err(|e| e.to_string()),
+            "TestConfig",
+        );
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_get_param_or_default_returns_default_on_wrong_type() {
+        let params = make_params(&[("num", 123.5.into())]);
+        // parser expects a u32 from a string
+        let result = get_param_or_default::<u32, _, String>(
+            &params,
+            "num",
+            10,
+            |s| s.parse::<u32>().map_err(|e| e.to_string()),
+            "TestConfig",
+        );
+        assert_eq!(result, 10); // fallback to default
+    }
+
+    #[test]
+    fn test_get_param_or_default_returns_default_on_parse_error() {
+        let params = make_params(&[("num", "not_a_number".into())]);
+        let result = get_param_or_default::<u32, _, String>(
+            &params,
+            "num",
+            7,
+            |s| s.parse::<u32>().map_err(|e| e.to_string()),
+            "TestConfig",
+        );
+        assert_eq!(result, 7); // fallback
+    }
+
+    #[test]
+    fn test_get_param_or_default_returns_parsed_value_on_success() {
+        let params = make_params(&[("num", "123".into())]);
+        let result = get_param_or_default::<u32, _, String>(
+            &params,
+            "num",
+            0,
+            |s| s.parse::<u32>().map_err(|e| e.to_string()),
+            "TestConfig",
+        );
+        assert_eq!(result, 123); // parsed successfully
+    }
+
+    #[test]
+    fn test_get_param_or_default_works_with_non_string_value_type() {
+        // Here we try to directly deserialize an integer
+        let params = make_params(&[("num", 55.into())]);
+        let result = get_param_or_default::<u32, _, u32>(
+            &params,
+            "num",
+            1,
+            |n| Ok(n + 5), // parser just adds 5
+            "TestConfig",
+        );
+        assert_eq!(result, 60);
+    }
+
+    #[test]
+    fn test_parse_end_datetime() {
+        // now
+        let before = OffsetDateTime::now_utc();
+        let parsed = parse_end_datetime("now").unwrap();
+        let after = OffsetDateTime::now_utc();
+
+        // parsed should be between before and after
+        assert!(parsed >= before && parsed <= after);
+
+        // Full datetime
+        assert_eq!(
+            parse_end_datetime("20250924 06:04:38").unwrap(),
+            datetime!(2025-09-24 6:04:38 +00:00:00)
+        );
+        // Date only defaults to midnight
+        assert_eq!(
+            parse_end_datetime("20250924").unwrap(),
+            datetime!(2025-09-24 00:00:00 +00:00:00)
+        );
+        // Invalid input
+        assert!(
+            parse_end_datetime("invalid-date-string")
+                .unwrap_err()
+                .contains("Invalid end_datetime format")
+        );
+    }
 }
