@@ -1,4 +1,5 @@
 use super::PositionSizer;
+use crate::broker::AccountInfo;
 
 pub struct PercentOfEquitySizer {
     name: String,
@@ -12,8 +13,9 @@ impl PercentOfEquitySizer {
 }
 
 impl PositionSizer for PercentOfEquitySizer {
-    fn size(&self) -> u32 {
-        // TODO: Implement
-        10
+    fn size(&self, account: &AccountInfo, price: f64) -> u32 {
+        let max_allocation = account.equity * self.percent;
+        let qty = (max_allocation / price).floor();
+        qty as u32
     }
 }

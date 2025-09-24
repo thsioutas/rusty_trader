@@ -1,5 +1,5 @@
 use crate::{
-    broker::Broker,
+    broker::{AccountInfo, Broker},
     data_feed::DataFeed,
     position_sizer::PositionSizer,
     strategy::Strategy,
@@ -7,7 +7,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub const DEFAULT_SMA_CROSS_FAST_WINDOW: usize = 50;
 pub const DEFAULT_SMA_CROSS_SLOW_WINDOW: usize = 200;
@@ -81,18 +81,42 @@ impl Strategy for SmaCrossStrategy {
         while let Some(data) = self.data_feed.next_tick().await {
             self.prices.push(data.price);
             if let Some(signal) = self.check_signal() {
-                let qty = self.position_sizer.size();
+                let account_snapshot = self.broker.portfolio_snapshot().await;
+                let qty = self.position_sizer.size(&account_snapshot, data.price);
+                if qty == 0 {
+                    info!("Sizer return qty=0; skipping order");
+                    continue;
+                }
                 let order = Order {
-                    symbol: "AAPL".into(),
+                    symbol: data.symbol,
                     side: signal.into(),
                     qty,
-                    price: None,
+                    price: Some(data.price),
                     order_type: OrderType::Market,
+                    strategy_name: self.name.clone(),
                 };
-                if let Err(err) = self.broker.place_order(&order).await {
-                    error!("Failed to place order: {err}");
-                } else {
-                    info!("Placed {:?} at price {}", order, data.price);
+                match self
+                    .broker
+                    .portfolio_pre_reserve_for_order(&order, data.price)
+                    .await
+                {
+                    Ok(_) => {
+                        match self.broker.place_order(&order).await {
+                            Ok(_) => {
+                                // TODO: Consider improving log
+                                info!("Placed {:?} at price {}", order, data.price);
+                            }
+                            Err(err) => {
+                                error!("Failed to place order: {err}");
+                                self.broker
+                                    .portfolio_release_reserved_cash(qty, data.price)
+                                    .await;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        warn!("Order pre-check failed: {}", err);
+                    }
                 }
             } else {
                 debug!("No signal at price {}", data.price);

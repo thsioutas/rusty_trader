@@ -34,6 +34,10 @@ pub async fn build_strategies(
     bot_config: BotConfig,
 ) -> Result<Vec<Box<dyn Strategy>>, FactoryError> {
     let ib_connections = build_connections(bot_config.ib_connections)?;
+    // TODO: Discuss if this is the best design (via FillListener and a mpsc) for the update of portfolio
+    // TODO: Pass an ib_connection or config init data (maybe based on broker type?) to portfolio constructor
+    // let fill_listener = FillListener::new(fill_rx, portfolio.clone());
+    // fill_listener.start().await;
     let brokers = build_brokers(bot_config.brokers, &ib_connections)?;
     let mut data_feeds = build_data_feeds(bot_config.data_feeds, &ib_connections)?;
     let mut position_sizers = build_sizers(bot_config.position_sizers)?;

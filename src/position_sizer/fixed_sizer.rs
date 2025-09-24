@@ -1,4 +1,5 @@
 use super::PositionSizer;
+use crate::broker::AccountInfo;
 
 pub struct FixedSizer {
     pub name: String,
@@ -12,8 +13,7 @@ impl FixedSizer {
 }
 
 impl PositionSizer for FixedSizer {
-    fn size(&self) -> u32 {
-        // TODO: Check account info etc
+    fn size(&self, _account: &AccountInfo, _price: f64) -> u32 {
         self.qty
     }
 }

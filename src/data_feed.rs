@@ -4,6 +4,7 @@ pub mod csv_data_feed;
 pub mod ib_historical_data_feed;
 pub mod ib_market_data_feed;
 
+// TODO: Is this the right place for MarketData declaration?
 #[derive(Debug, Clone)]
 pub struct MarketData {
     pub symbol: String,

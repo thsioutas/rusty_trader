@@ -20,7 +20,7 @@ async fn test_sma_cross_strategy_signals() {
         "TestSMA".to_string(),
         Box::new(feed),
         broker.clone(),
-        Box::new(FixedSizer::new("Fixed sizer".into(), 100)),
+        Box::new(FixedSizer::new("Fixed sizer".into(), 2)),
         50,
         200,
     );
