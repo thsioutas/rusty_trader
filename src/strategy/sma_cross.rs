@@ -103,7 +103,7 @@ impl Strategy for SmaCrossStrategy {
                     Ok(_) => {
                         match self.broker.place_order(&order).await {
                             Ok(_) => {
-                                // TODO: Consider improving log
+                                // TODO: Improve logging
                                 info!("Placed {:?} at price {}", order, data.price);
                             }
                             Err(err) => {
@@ -119,6 +119,7 @@ impl Strategy for SmaCrossStrategy {
                     }
                 }
             } else {
+                // TODO: Improve logging. Why no signal at the specific price
                 debug!("No signal at price {}", data.price);
             }
         }

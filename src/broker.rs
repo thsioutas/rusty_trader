@@ -33,8 +33,8 @@ pub trait Broker: Send + Sync {
 
 #[derive(Debug, Error)]
 pub enum BrokerError {
-    #[error("Failed to place order")]
-    PlaceOrder,
+    #[error("Failed to place order: {0}")]
+    PlaceOrder(String),
 }
 
 pub struct Portfolio {
