@@ -60,7 +60,7 @@ impl Portfolio {
     }
 
     /// Return read-only snapshot for sizers
-    pub async fn snapshot(&self) -> AccountInfo {
+    pub fn snapshot(&self) -> AccountInfo {
         let equity = self.cash
             + self
                 .positions
@@ -171,7 +171,7 @@ impl PortfolioManager {
         }
     }
     pub async fn snapshot(&self) -> AccountInfo {
-        self.portfolio.lock().await.snapshot().await
+        self.portfolio.lock().await.snapshot()
     }
     pub async fn pre_reserve_for_order(
         &self,
@@ -191,5 +191,151 @@ impl PortfolioManager {
     }
     async fn apply_fill(&self, fill: Fill) {
         self.portfolio.lock().await.apply_fill(fill);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::OrderType;
+    fn make_order(symbol: &str, side: OrderSide, qty: u32) -> Order {
+        Order {
+            symbol: symbol.into(),
+            qty,
+            price: None,
+            side,
+            order_type: OrderType::Market,
+            strategy_name: Default::default(),
+        }
+    }
+
+    fn make_fill(symbol: &str, side: OrderSide, qty: u32, price: f64) -> Fill {
+        Fill {
+            order_id: "test".into(),
+            symbol: symbol.into(),
+            qty,
+            price,
+            side,
+            timestamp: chrono::Local::now().naive_local(),
+        }
+    }
+
+    #[test]
+    fn test_portfolio_snapshot_includes_positions() {
+        let mut positions = HashMap::new();
+        positions.insert(
+            "AAPL".to_string(),
+            Position {
+                symbol: "AAPL".into(),
+                qty: 10,
+                avg_price: 100.0,
+            },
+        );
+
+        let portfolio = Portfolio::new(500.0, 0.0, positions);
+        let snapshot = portfolio.snapshot();
+
+        assert_eq!(snapshot.cash, 500.0);
+        assert_eq!(snapshot.equity, 500.0 + 10.0 * 100.0);
+        assert_eq!(snapshot.reserved_cash, 0.0);
+    }
+
+    #[test]
+    fn test_portfolio_pre_reserve_buy_success() {
+        let mut portfolio = Portfolio::new(1000.0, 0.0, HashMap::new());
+        let order = make_order("AAPL", OrderSide::Buy, 5);
+
+        let result = portfolio.pre_reserve_for_order(&order, 100.0);
+
+        assert!(result.is_ok());
+        assert_eq!(portfolio.reserved_cash, 500.0);
+    }
+
+    #[test]
+    fn test_portfolio_pre_reserve_buy_insufficient_cash() {
+        let mut portfolio = Portfolio::new(200.0, 0.0, HashMap::new());
+        let order = make_order("AAPL", OrderSide::Buy, 5);
+
+        let result = portfolio.pre_reserve_for_order(&order, 100.0);
+
+        assert!(matches!(result, Err(PortfolioError::InsufficientCash(..))));
+    }
+
+    #[test]
+    fn tst_portfolio_pre_reserve_sell_success() {
+        let mut positions = HashMap::new();
+        positions.insert(
+            "AAPL".to_string(),
+            Position {
+                symbol: "AAPL".into(),
+                qty: 10,
+                avg_price: 100.0,
+            },
+        );
+        let mut portfolio = Portfolio::new(1000.0, 0.0, positions);
+        let order = make_order("AAPL", OrderSide::Sell, 5);
+
+        let result = portfolio.pre_reserve_for_order(&order, 150.0);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_portfolio_pre_reserve_sell_insufficient_position() {
+        let mut positions = HashMap::new();
+        positions.insert(
+            "AAPL".to_string(),
+            Position {
+                symbol: "AAPL".into(),
+                qty: 2,
+                avg_price: 100.0,
+            },
+        );
+        let mut portfolio = Portfolio::new(1000.0, 0.0, positions);
+        let order = make_order("AAPL", OrderSide::Sell, 5);
+
+        let result = portfolio.pre_reserve_for_order(&order, 150.0);
+
+        assert!(matches!(
+            result,
+            Err(PortfolioError::InsufficientPosition(..))
+        ));
+    }
+
+    #[test]
+    fn test_portfolio_apply_fill_buy_updates_cash_and_position() {
+        let mut portfolio = Portfolio::new(1000.0, 500.0, HashMap::new());
+        let fill = make_fill("AAPL", OrderSide::Buy, 5, 100.0);
+
+        portfolio.apply_fill(fill);
+
+        assert_eq!(portfolio.cash, 1000.0 - 500.0); // spent 500
+        assert_eq!(portfolio.reserved_cash, 0.0);
+
+        let pos = portfolio.positions.get("AAPL").unwrap();
+        assert_eq!(pos.qty, 5);
+        assert_eq!(pos.avg_price, 100.0);
+    }
+
+    #[test]
+    fn test_portfolio_apply_fill_sell_updates_cash_and_position() {
+        let mut positions = HashMap::new();
+        positions.insert(
+            "AAPL".to_string(),
+            Position {
+                symbol: "AAPL".into(),
+                qty: 10,
+                avg_price: 100.0,
+            },
+        );
+        let mut portfolio = Portfolio::new(1000.0, 0.0, positions);
+        let fill = make_fill("AAPL", OrderSide::Sell, 5, 150.0);
+
+        portfolio.apply_fill(fill);
+
+        assert_eq!(portfolio.cash, 1000.0 + 750.0);
+        let pos = portfolio.positions.get("AAPL").unwrap();
+        assert_eq!(pos.qty, 5); // 5 left
+        assert_eq!(pos.avg_price, 100.0); // unchanged
     }
 }

@@ -19,3 +19,20 @@ impl PositionSizer for PercentOfEquitySizer {
         qty as u32
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::broker::AccountInfo;
+
+    #[test]
+    fn test_percent_of_equity_sizer_size() {
+        let sizer = PercentOfEquitySizer::new("equity-sizer".to_string(), 0.1);
+        let account = AccountInfo {
+            cash: 0.0,
+            reserved_cash: 0.0,
+            equity: 1000.0,
+        };
+        assert_eq!(1, sizer.size(&account, 100.0));
+    }
+}

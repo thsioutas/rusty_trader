@@ -14,6 +14,16 @@ brokers:
   - name: "Dummy broker"
     type: "DummyBroker"
 
+sizers:
+  - name: "Fixed 100"
+    type: "FixedSizer"
+    params:
+      qty: 100
+  - name: "10% Equity"
+    type: "PercentOfEquitySizer"
+    params:
+      percent: 0.1
+
 data_feeds:
   - name: "Backtest data feed"
     type: "CsvDataFeed"
@@ -33,10 +43,12 @@ strategies:
     type: "PrintStrategy"
     broker: "Dummy broker"
     data_feed: "Backtest data feed"
+    sizer: "Fixed 100"
   - name: "SMA cross with historical data"
     type: "SmaCrossStrategy"
     broker: "Dummy broker"
     data_feed: "IB Historical data feed"
+    sizer: "10% Equity"
     params:
       slow_window: 200
       fast_window: 50
@@ -44,6 +56,7 @@ strategies:
     type: "SmaCrossStrategy"
     broker: "Dummy broker"
     data_feed: "IB Market data feed"
+    sizer: "10% Equity"
     params:
       slow_window: 200
       fast_window: 50
