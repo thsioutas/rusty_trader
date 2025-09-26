@@ -1,5 +1,5 @@
 use crate::{
-    broker::{AccountInfo, Broker},
+    broker::Broker,
     data_feed::DataFeed,
     position_sizer::PositionSizer,
     strategy::Strategy,

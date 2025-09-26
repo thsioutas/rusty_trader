@@ -21,7 +21,7 @@ position_sizers:
   - name: "fixed-100"
     type: "FixedSizer"
     params:
-      qty: 2
+      qty: 1
 
 strategies:
   - name: "SMA cross with historical data"

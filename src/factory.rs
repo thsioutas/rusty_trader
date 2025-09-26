@@ -117,7 +117,9 @@ fn build_brokers(
             BrokerType::DummyBroker => Arc::new(DummyBroker::new(config.name.clone())),
             BrokerType::IbBroker => {
                 let ib_connection = get_ib_connection(config.params.as_ref(), ib_connections)?;
-                Arc::new(Ib::new(config.name.clone(), ib_connection.clone()))
+                let ib_broker = Ib::new(config.name.clone(), ib_connection.clone())
+                    .map_err(|err| FactoryError::BrokerInit(err.to_string()))?;
+                Arc::new(ib_broker)
             }
         };
         brokers.insert(config.name, broker);
@@ -339,6 +341,8 @@ pub enum FactoryError {
     WrongCsvPathFormat(String),
     #[error("CSV Data Feed initialization failed: `{0}`")]
     CsvDataFeedInitError(String),
+    #[error("Failed to initialize broker: `{0}`")]
+    BrokerInit(String),
 }
 
 #[cfg(test)]
