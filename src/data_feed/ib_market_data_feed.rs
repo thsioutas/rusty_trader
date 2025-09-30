@@ -12,10 +12,9 @@ pub struct IbMarketDataFeed {
 }
 
 impl IbMarketDataFeed {
-    pub fn new(name: String, client: Arc<Client>) -> Self {
+    pub fn new(name: String, client: Arc<Client>, symbol: String) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
-        // TODO: The contract should be configurable
-        let contract = Contract::stock("AAPL");
+        let contract = Contract::stock(&symbol);
         // TODO: Fix generic ticks, snapshot and regulatory snapshot
         let generic_ticks = &["233", "293"];
         let snapshot = false;
@@ -29,7 +28,7 @@ impl IbMarketDataFeed {
                 match tick {
                     TickTypes::Price(tick_price) => {
                         let md = MarketData {
-                            symbol: "AAPL".to_string(),
+                            symbol: symbol.clone(),
                             price: tick_price.price,
                             // timestamp:
                         };

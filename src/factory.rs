@@ -150,7 +150,11 @@ fn build_data_feeds(
             }
             DataFeedType::IbMarketDataFeed => {
                 let ib_connection = get_ib_connection(Some(&config.params), ib_connections)?;
-                Box::new(IbMarketDataFeed::new(config.name.clone(), ib_connection))
+                Box::new(IbMarketDataFeed::new(
+                    config.name.clone(),
+                    ib_connection,
+                    config.symbol,
+                ))
             }
             DataFeedType::IbHistoricalDataFeed => {
                 let ib_connection: Arc<Client> =
