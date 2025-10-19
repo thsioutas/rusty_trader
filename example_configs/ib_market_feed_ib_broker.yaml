@@ -1,0 +1,33 @@
+ib_connections:
+  - name: "ib-local"
+    address: "127.0.0.1:4002"
+    client_id: 1
+
+brokers:
+  - name: "ib-broker"
+    type: "IbBroker"
+    params:
+      connection: "ib-local"
+
+data_feeds:
+  - name: "ib-market-data-feed"
+    type: "IbMarketDataFeed"
+    symbol: "AAP"
+    params:
+      connection: "ib-local"
+
+position_sizers:
+  - name: "fixed-1"
+    type: "FixedSizer"
+    params:
+      qty: 1
+
+strategies:
+  - name: "sma-cross"
+    type: "SmaCrossStrategy"
+    broker: "ib-broker"
+    data_feed: "ib-market-data-feed"
+    position_sizer: "fixed-1"
+    params:
+      slow_window: 200
+      fast_window: 50

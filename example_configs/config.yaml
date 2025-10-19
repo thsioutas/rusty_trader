@@ -1,62 +1,62 @@
 ib_connections:
-  - name: "IB-local"
+  - name: "ib-local"
     address: "127.0.0.1:4040"
     client_id: 1
-  - name: "IB-local-2"
+  - name: "ib-local-2"
     address: "127.0.0.1:4050"
     client_id: 2
 
 brokers:
-  - name: "IB broker"
+  - name: "ib-broker"
     type: "IbBroker"
     params:
       connection: "IB-local"
-  - name: "Dummy broker"
+  - name: "dummy-broker"
     type: "DummyBroker"
 
 sizers:
-  - name: "Fixed 100"
+  - name: "fixed-100"
     type: "FixedSizer"
     params:
       qty: 100
-  - name: "10% Equity"
+  - name: "equity-10"
     type: "PercentOfEquitySizer"
     params:
       percent: 0.1
 
 data_feeds:
-  - name: "Backtest data feed"
+  - name: "backetest-data-feed"
     type: "CsvDataFeed"
     params:
       path: "test/csv_data_1.csv"
-  - name: "IB Market data feed"
+  - name: "ib-market-data-feed"
     type: "IbMarketDataFeed"
     params:
-      connection: "IB-local"
-  - name: "IB Historical data feed"
+      connection: "ib-local"
+  - name: "ib-historical-data-feed"
     type: "IbHistoricalDataFeed"
     params:
-      connection: "IB-local-2"
+      connection: "ib-local-2"
 
 strategies:
   - name: "print-a"
     type: "PrintStrategy"
-    broker: "Dummy broker"
-    data_feed: "Backtest data feed"
-    sizer: "Fixed 100"
-  - name: "SMA cross with historical data"
+    broker: "dummy-broker"
+    data_feed: "backtest-data-feed"
+    sizer: "fixed-100"
+  - name: "sma-cross-historical-data"
     type: "SmaCrossStrategy"
-    broker: "Dummy broker"
-    data_feed: "IB Historical data feed"
-    sizer: "10% Equity"
+    broker: "dummy-broker"
+    data_feed: "ib-historical-data-feed"
+    sizer: "equity-10%"
     params:
       slow_window: 200
       fast_window: 50
-  - name: "SMA cross with market data"
+  - name: "sma-cross-market-data"
     type: "SmaCrossStrategy"
-    broker: "Dummy broker"
-    data_feed: "IB Market data feed"
-    sizer: "10% Equity"
+    broker: "dummy-roker"
+    data_feed: "ib-market-data-feed"
+    sizer: "equity-10%"
     params:
       slow_window: 200
       fast_window: 50

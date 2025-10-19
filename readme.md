@@ -67,21 +67,21 @@ Arguments:
 
 ```yaml
 ib_connections:
-  - name: "IB-local"
+  - name: "ib-local"
     address: "127.0.0.1:4040"
     client_id: 1
 
 brokers:
-  - name: "IB broker"
+  - name: "ib-broker"
     type: "IbBroker"
     params:
-      connection: "IB-local"
+      connection: "ib-local"
 
 data_feeds:
-  - name: "IB Market data feed"
+  - name: "ib-market-data-feed"
     type: "IbMarketDataFeed"
     params:
-      connection: "IB-local"
+      connection: "ib-local"
 
 sizers:
   - name: "fixed-100"
@@ -92,8 +92,8 @@ sizers:
 strategies:
   - name: "SMA cross with market data"
     type: "SmaCrossStrategy"
-    broker: "IB broker"
-    data_feed: "IB Market data feed"
+    broker: "ib-broker"
+    data_feed: "ib-market-data-feed"
     sizer: "fixed-100"
     params:
       slow_window: 200
