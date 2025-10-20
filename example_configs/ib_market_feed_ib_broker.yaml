@@ -15,6 +15,7 @@ data_feeds:
     symbol: "AAP"
     params:
       connection: "ib-local"
+      data_type: "Delayed"
 
 position_sizers:
   - name: "fixed-1"

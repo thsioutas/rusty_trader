@@ -1,7 +1,8 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
+use ibapi::market_data::MarketDataType;
 use ibapi::{Client, contracts::Contract, market_data::realtime::TickTypes};
+use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::mpsc;
 
 use crate::data_feed::{DataFeed, MarketData};
@@ -12,8 +13,16 @@ pub struct IbMarketDataFeed {
 }
 
 impl IbMarketDataFeed {
-    pub fn new(name: String, client: Arc<Client>, symbol: String) -> Self {
+    pub fn new(
+        name: String,
+        client: Arc<Client>,
+        symbol: String,
+        market_data_type: MarketDataType,
+    ) -> Result<Self, IbMarketDataFeedError> {
         let (tx, rx) = mpsc::unbounded_channel();
+        client
+            .switch_market_data_type(market_data_type)
+            .map_err(|err| IbMarketDataFeedError::Init(err.to_string()))?;
         let contract = Contract::stock(&symbol);
         // TODO: Fix generic ticks, snapshot and regulatory snapshot
         let generic_ticks = &["233", "293"];
@@ -41,7 +50,7 @@ impl IbMarketDataFeed {
                 }
             }
         });
-        Self { name, rx }
+        Ok(Self { name, rx })
     }
 }
 
@@ -53,4 +62,10 @@ impl DataFeed for IbMarketDataFeed {
     async fn next_tick(&mut self) -> Option<MarketData> {
         self.rx.recv().await
     }
+}
+
+#[derive(Debug, Error)]
+pub enum IbMarketDataFeedError {
+    #[error("Interactive Broker data feed initialization failed: {0}")]
+    Init(String),
 }

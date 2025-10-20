@@ -22,6 +22,7 @@ use crate::{
 use config::Value;
 use ibapi::{
     Client,
+    market_data::MarketDataType as IbMarketDataType,
     market_data::historical::{BarSize, Duration, ToDuration},
 };
 use serde::Deserialize;
@@ -150,11 +151,21 @@ fn build_data_feeds(
             }
             DataFeedType::IbMarketDataFeed => {
                 let ib_connection = get_ib_connection(Some(&config.params), ib_connections)?;
-                Box::new(IbMarketDataFeed::new(
+                let ib_market_data_type = get_param_or_default(
+                    &config.params,
+                    "data_type",
+                    MarketDataType::Delayed,
+                    |v: &MarketDataType| Ok(v.clone()),
+                    "IB Market Data Feed",
+                );
+                let feed = IbMarketDataFeed::new(
                     config.name.clone(),
                     ib_connection,
                     config.symbol,
-                ))
+                    ib_market_data_type.into(),
+                )
+                .map_err(|err| FactoryError::FeedInit(err.to_string()))?;
+                Box::new(feed)
             }
             DataFeedType::IbHistoricalDataFeed => {
                 let ib_connection: Arc<Client> =
@@ -270,7 +281,7 @@ fn get_param_or_default<'de, T, F, V>(
 ) -> T
 where
     T: Clone + std::fmt::Debug,
-    V: Deserialize<'de> + std::fmt::Display,
+    V: Deserialize<'de> + std::fmt::Debug,
     F: FnOnce(&V) -> Result<T, String>,
 {
     match params.get(key) {
@@ -286,7 +297,7 @@ where
                 Ok(val) => val,
                 Err(err) => {
                     error!(
-                        "Failed to parse '{key}' param ('{s}') for {root_config_name}. \
+                        "Failed to parse '{key}' param ('{s:?}') for {root_config_name}. \
                         Using default: {:?}. Error: {err}",
                         default
                     );
@@ -323,6 +334,25 @@ fn parse_end_datetime(s: &str) -> Result<OffsetDateTime, String> {
     Err(format!("Invalid end_datetime format: {s}"))
 }
 
+#[derive(Clone, Debug, Deserialize)]
+enum MarketDataType {
+    Live,
+    Frozen,
+    Delayed,
+    DelayedFrozen,
+}
+
+impl From<MarketDataType> for IbMarketDataType {
+    fn from(my_type: MarketDataType) -> IbMarketDataType {
+        match my_type {
+            MarketDataType::Delayed => IbMarketDataType::Delayed,
+            MarketDataType::Frozen => IbMarketDataType::Frozen,
+            MarketDataType::DelayedFrozen => IbMarketDataType::DelayedFrozen,
+            MarketDataType::Live => IbMarketDataType::Live,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum FactoryError {
     #[error("Interactive Broker configuration without connection parameter")]
@@ -347,6 +377,8 @@ pub enum FactoryError {
     CsvDataFeedInitError(String),
     #[error("Failed to initialize broker: `{0}`")]
     BrokerInit(String),
+    #[error("Failed to initialize feed: `{0}`")]
+    FeedInit(String),
 }
 
 #[cfg(test)]
